@@ -16,6 +16,7 @@ local function init()
 	if Blackie.Commands then Blackie.Commands.Init() end
 	if Blackie.CutShort then Blackie.CutShort.Init() end
 	if Blackie.DiscoveryLog then Blackie.DiscoveryLog.attachPlayerHandlers() end
+	if Blackie.MinimapButton then pcall(Blackie.MinimapButton.Create) end
 
 	-- One silent recipe refresh shortly after login (cheap once a driver is pinned).
 	Blackie.Events.After(2, function()
@@ -26,7 +27,7 @@ local function init()
 	end) -- no-op until Batch G
 
 	local ci = Blackie.Compat.clientInfo()
-	Blackie:Print(format("v%s loaded (iface %s) — /blackie help",
+	Blackie:Print(format("v%s loaded (iface %s) — click the minimap button or type /blackie to open the panel",
 		Blackie.version, tostring(ci.interface)))
 end
 

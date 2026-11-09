@@ -1,5 +1,9 @@
--- Blackie.APIProbe: prints an existence matrix + light runtime tests so the
--- exact WoW Forever API spellings can be pinned down from a live client.
+-- Blackie.APIProbe: the VERIFICATION layer. Compat already encodes the documented
+-- WoW Forever API baseline (mainline 12.1.x surface -- see the Core/Compat.lua
+-- header comment). This command confirms that baseline against a live client,
+-- flags the names the docs do NOT cover (recipe enumeration, AH queries) with
+-- YES/--, runs light runtime tests, and persists results in BlackieDB.probe.
+-- Re-run after every client update (1.60.1 -> 1.60.2 is coming).
 -- Run in game with:  /blackie probe        (adds runtime AH test: /blackie probe full)
 
 local Blackie = Blackie
@@ -18,10 +22,17 @@ local CANDIDATES = {
 		"ItemInfo", "C_Item.GetItemLink",
 		"GetItemInfo", "GetItemInfoInstant", "GetItemCount",
 	} },
+	-- C_TradeSkillUI.GetRecipeNumDisplayRecipes / GetRecipeDisplayRecipe are
+	-- UNVERIFIED candidates (no wiki page, no mainline source-mirror hits); the
+	-- rest of the C_TradeSkillUI block is documented mainline 12.1.x surface.
 	{ group = "TRADE", names = {
 		"C_TradeSkillUI.GetRecipeNumDisplayRecipes", "C_TradeSkillUI.GetRecipeDisplayRecipe",
 		"C_TradeSkillUI.GetRecipeInfo", "C_TradeSkillUI.OpenTradeSkill",
 		"C_TradeSkillUI.GetTradeSkillLevel", "C_TradeSkillUI.UpdateTradeSkills",
+		"C_TradeSkillUI.GetNumTradeSkills", "C_TradeSkillUI.GetTradeSkillInfo",
+		"C_TradeSkillUI.GetBaseProfessionInfo", "C_TradeSkillUI.GetChildProfessionInfo",
+		"C_TradeSkillUI.GetTradeSkillTexture",
+		"C_TradeSkillUI.GetRecipeInfoForSkillLineAbility", "C_TradeSkillUI.IsRecipeFavorite",
 		"GetNumTradeSkills", "GetTradeSkillInfo", "GetNumTradeSkillReagents",
 		"GetTradeSkillReagentInfo", "GetTradeSkillIcon", "GetTradeSkillDifficulty",
 		"GetTradeSkillSpellID",
@@ -68,8 +79,8 @@ local CANDIDATES = {
 
 -- UI frames whose presence tells us which Blizzard UI packages are loaded.
 local FRAMES = {
-	"TradeSkillFrame", "SkillFrame", "MerchantFrame", "G_MerchantFrame",
-	"AuctionFrame", "TrainerFrame", "SkillFrame", "Minimap",
+	"TradeSkillFrame", "ProfessionsFrame", "SkillFrame", "MerchantFrame",
+	"G_MerchantFrame", "AuctionFrame", "TrainerFrame", "Minimap",
 }
 
 -- Events to listen on for skill-gain / recipe-list updates.
@@ -157,7 +168,8 @@ function P.Run(fullMode)
 	end
 	try("tsScanDrivers()", function()
 		local drivers = {}
-		if Compat.exists("C_TradeSkillUI.GetRecipeNumDisplayRecipes") then drivers[#drivers + 1] = "C_TradeSkillUI" end
+		if Compat.exists("C_TradeSkillUI.GetRecipeNumDisplayRecipes")
+			or Compat.exists("C_TradeSkillUI.GetNumTradeSkills") then drivers[#drivers + 1] = "C_TradeSkillUI" end
 		if Compat.exists("GetNumTradeSkills") then drivers[#drivers + 1] = "Classic.Tradeskill" end
 		if Compat.exists("C_Professions.GetNumRecipeListEntries") then drivers[#drivers + 1] = "C_Professions" end
 		if Compat.driver then drivers[#drivers + 1] = "pinned=" .. Compat.driver end

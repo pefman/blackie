@@ -8,16 +8,26 @@ local C = Blackie.Commands
 local Util = Blackie.Util
 
 local pendingCommands = {
-	open = "panel UI (Batch F)",
-	recipes = "recipes UI (Batch F)",
 	selftest = "self-test (Batch G)",
-	copy = "plan copy (Batch F)",
-	learn = "trainer learn helper (Batch F)",
+	copy = "plan copy (clipboard support)",
+	learn = "trainer learn helper (needs verified trainer-learn API)",
 }
 
+local function togglePanel(tabName)
+	if Blackie.Panel and Blackie.Panel.Toggle then
+		Blackie.Panel.Toggle(tabName)
+	else
+		Blackie:Print("panel UI not loaded — check the Blackie.toc load order")
+	end
+end
+
 function C.Help()
-	Blackie:Print("commands:")
-	Blackie:Print("  /blackie probe [full]   diagnose client APIs (paste report back)")
+	Blackie:Print("Blackie is a GUI addon: press /blackie (no arguments) or click the minimap button to open the panel.")
+	Blackie:Print("panel tabs: Recipes | Plan | Shopping (slash commands below are secondary diagnostics)")
+	Blackie:Print("  /blackie                open/close the panel")
+	Blackie:Print("  /blackie open           same as no arguments")
+	Blackie:Print("  /blackie recipes        open the panel on the Recipes tab")
+	Blackie:Print("  /blackie probe [full]   verify the documented API baseline for this client build (paste report back)")
 	Blackie:Print("  /blackie compat         show pinned driver selections")
 	Blackie:Print("  /blackie target [n]     leveling target (75/150/225/300)")
 	Blackie:Print("  /blackie version")
@@ -26,9 +36,9 @@ function C.Help()
 	Blackie:Print("  /blackie trainer        scan the open trainer window")
 	Blackie:Print("  /blackie vendor         scan the open vendor window")
 	Blackie:Print("  /blackie price <itemID> item price lookup (cached AH / vendor / bags)")
-	Blackie:Print("  /blackie plan           compute optimal 1->target leveling path")
-	Blackie:Print("  /blackie shopping      show shopping list of last plan")
-	Blackie:Print("  coming soon: open, recipes, selftest, copy, learn")
+	Blackie:Print("  /blackie plan           optimal 1->target path to chat (also on the Plan tab)")
+	Blackie:Print("  /blackie shopping       show shopping list of last plan")
+	Blackie:Print("  coming soon: selftest, copy, learn")
 end
 
 function C.CompatDump()
@@ -105,19 +115,18 @@ function C.Plan()
 	local current = Compat.currentSkill() or 0
 	local target = Blackie.Profile().settings.target or 300
 	Blackie:Print(format("solving %d -> %d with %d cached recipes...", current, target, #recipes))
-	local result = PS.solve {
+	local result, plan = PB.runPlan({
 		current = current, target = target, recipes = recipes,
 		allowOrange = false,
 		priceOf = function(id) return CS.priceOf(id) end,
 		priceOfName = function(name) return nil end,
-	}
+	})
 	if not result.ok then
 		Blackie:Print("solver: " .. tostring(result.reason) ..
 			(result.maxReached and (" (max reachable with current knowledge: " .. result.maxReached .. ")") or ""))
 		Blackie:Print("tip: open a vendor and run /blackie vendor, stand at an AH, run /blackie trainer — pricing gates the solver.")
 		return
 	end
-	local plan = PB.build(result)
 	PB.report(plan)
 end
 
@@ -133,7 +142,15 @@ function C.Dispatch(input)
 	local cmd, rest = text:match("^(%S+)%s*(.*)$")
 	cmd = cmd or ""
 	if cmd == "" or cmd == "help" or cmd == "?" then
-		C.Help()
+		if cmd == "" then
+			togglePanel()
+		else
+			C.Help()
+		end
+	elseif cmd == "open" then
+		togglePanel()
+	elseif cmd == "recipes" then
+		togglePanel("Recipes")
 	elseif cmd == "probe" then
 		if Blackie.APIProbe then Blackie.APIProbe.Run(rest == "full") else Blackie:Print("probe not loaded") end
 	elseif cmd == "rescan" then

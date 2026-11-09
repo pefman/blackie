@@ -23,13 +23,16 @@ Core/Data/SkillupModel.lua
 Core/Solver/RankInfo.lua
 Core/Solver/PathSolver.lua
 Core/Solver/PlanBuilder.lua
+
+# --- GUI (Batch F) ---
+UI/ScrollList.lua
+UI/Panel.lua
+UI/RecipesTab.lua
+UI/PlanTab.lua
+UI/ShoppingTab.lua
+UI/MinimapButton.lua
+
 Core/Main.lua
 
-# --- not yet implemented (uncomment as each file lands) ---
+# --- not yet implemented (uncomment when the file lands) ---
 # Core/SelfTest.lua
-# UI/ScrollList.lua
-# UI/Panel.lua
-# UI/RecipesTab.lua
-# UI/PlanTab.lua
-# UI/ShoppingTab.lua
-# UI/MinimapButton.lua

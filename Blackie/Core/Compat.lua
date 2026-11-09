@@ -1,7 +1,34 @@
 -- Blackie.Compat
 -- Feature-detection shim so the addon never hard-codes one API surface.
--- "World of Warcraft: Forever" (Interface 16001) is new; the exact function
--- spellings are pinned down by /blackie probe and persisted in BlackieDB.probe.
+--
+-- Documented API baseline (researched online 2026-11-09, encoded BEFORE probing):
+--   * Forever shares Mainline WoW's UI architecture and "the vast majority of the
+--     APIs available in 12.1.5" (Warcraft Wiki, Patch 1.60.1 API notes). So modern
+--     Mainline names are tried FIRST in every shim below; 1.12-era classic globals
+--     (GetTradeSkillInfo, GetTrainerServiceInfo, GetItemInfo...) are fallback
+--     candidates only -- Mainline FrameXML was removed, so they may or may not
+--     exist as shims (every use stays behind an exists() gate + persisted style).
+--     Sources: warcraft.wiki.gg Patch_1.60.1/API_changes + API_changes/notes,
+--     wowforeveraddons.com "Writing addons for WoW Forever", and the community
+--     mainline UI source mirror (Gethe/wow-ui-source) for C_* signatures.
+--   * Game type: "Camelot" is Forever's gameType; WOW_PROJECT_CAMELOT (18) exists
+--     since build 70170 and the TOC accepts `## AllowLoadGameType: forever`.
+--     Early beta had a bug where WOW_PROJECT_ID reported the retail value, so
+--     Compat detects the client by version range + existence checks. Detection is
+--     INFORMATIONAL ONLY -- no feature is gated on it.
+--   * Midnight addon-disarmament is active in Forever: tainted code may hand
+--     secret values to native APIs but ARITHMETIC/COMPARISON on them raises a Lua
+--     error. Blackie never reads combat/health/aura numbers; numeric paths here
+--     deal with itemIDs and cached prices only.
+--   * FrameStrata on Blizzard frames can return a secret value (2026-10-08): UI
+--     code must never call GetFrameStrata() on foreign frames; minimap and unit
+--     frames were reskinned/reorganized in beta -- wrap such touches in pcall.
+--   * Client updates: 1.60.1 -> 1.60.2 is the next patch; API surface can shift.
+--     Re-run /blackie probe after every client update.
+--
+-- Runtime verification layer: the recipe-ENUMERATION surface and the exact AH query
+-- surface are not documented for Forever; /blackie probe verifies them live and
+-- the winning driver/style is persisted in BlackieDB.probe.
 -- Pure Lua here (may be loaded in the offline test harness).
 
 local Blackie = Blackie
@@ -254,39 +281,65 @@ end
 -- ---------------------------------------------------------------------------
 -- Trade skill recipe list (driver-selected)
 -- ---------------------------------------------------------------------------
-local function scanCTSU()
-	local num = Compat.firstNumber("C_TradeSkillUI.GetRecipeNumDisplayRecipes")
-	if num == nil then return nil end
-	local out = {}
-	for i = 1, num do
-		local okD, recipeID = Compat.raw("C_TradeSkillUI.GetRecipeDisplayRecipe", i, true, true)
-		if not okD or not recipeID then break end
-		local okR, info = Compat.raw("C_TradeSkillUI.GetRecipeInfo", recipeID)
-		if okR and info then
-			local itemId = Util.fieldVal(info, { "itemId", "craftedItemID", "itemOutputID" }) or 0
-			local name = Util.fieldVal(info, { "name", "recipeName", "craftedItemName" })
-			local req = Util.fieldVal(info, { "requiredLevel", "requiredSkill", "skillLevel" })
-			local uses = Util.fieldVal(info, { "alternateReagents", "usesReagents", "reagents" })
-			local reagents = {}
-			if type(uses) == "table" then
-				for _, r in ipairs(uses) do
-					if type(r) == "table" then
-						local rid = Util.fieldVal(r, { "itemID", "itemId" }) or 0
-						local rc = Util.fieldVal(r, { "quantity", "reagentCount", "count", "amountRequired", "quantityRequired" }) or 0
-						if rid and rid > 0 then reagents[#reagents + 1] = { itemId = rid, count = rc } end
-					end
-				end
+-- Build a normalized recipe row from a C_TradeSkillUI.GetRecipeInfo struct.
+-- The struct itself is VERIFIED mainline API (recipeID / previousRecipeID /
+-- nextRecipeID / unlockedRecipeLevel ... appear throughout Blizzard's own
+-- Blizzard_Professions frames); the exact reagent/difficulty field spellings vary
+-- across game eras, so candidates are merged defensively.
+local function recipeFromCTSUInfo(recipeID)
+	local okR, info = Compat.raw("C_TradeSkillUI.GetRecipeInfo", recipeID)
+	if not okR or not info then return nil end
+	local itemId = Util.fieldVal(info, { "itemId", "craftedItemID", "itemOutputID" }) or 0
+	local name = Util.fieldVal(info, { "name", "recipeName", "craftedItemName" })
+	local req = Util.fieldVal(info, { "requiredLevel", "requiredSkill", "skillLevel", "unlockedRecipeLevel" })
+	local uses = Util.fieldVal(info, { "alternateReagents", "craftingReagents", "usesReagents", "reagents" })
+	local reagents = {}
+	if type(uses) == "table" then
+		for _, r in ipairs(uses) do
+			if type(r) == "table" then
+				local rid = Util.fieldVal(r, { "itemID", "itemId" }) or 0
+				local rc = Util.fieldVal(r, { "quantity", "reagentCount", "count", "amountRequired", "quantityRequired" }) or 0
+				if rid and rid > 0 then reagents[#reagents + 1] = { itemId = rid, count = rc } end
 			end
-			out[#out + 1] = {
-				name = name, itemId = itemId, recipeID = recipeID,
-				requiredSkill = (type(req) == "number") and req or 0,
-				reagents = reagents,
-				difficult = info.difficult,
-				known = info.isKnown, craftable = info.isCraftable,
-			}
 		end
 	end
-	return out
+	return {
+		name = name, itemId = itemId, recipeID = recipeID,
+		requiredSkill = (type(req) == "number") and req or 0,
+		reagents = reagents,
+		difficult = info.difficult,
+		known = info.isKnown, craftable = info.isCraftable,
+	}
+end
+
+-- Modern (C_TradeSkillUI) enumeration. NOTE: the two names GetRecipeNumDisplayRecipes
+-- and GetRecipeDisplayRecipe are UNVERIFIED candidates -- they have no wiki page and
+-- zero hits in the mainline source mirror, but the probe flags them live (YES/--).
+-- Second enumeration candidate (documented in older mainline eras):
+-- C_TradeSkillUI.GetNumTradeSkills + GetTradeSkillInfo(i) -> recipeID.
+local function scanCTSU()
+	local out = {}
+	local num = Compat.firstNumber("C_TradeSkillUI.GetRecipeNumDisplayRecipes")
+	if num ~= nil then
+		for i = 1, num do
+			local okD, recipeID = Compat.raw("C_TradeSkillUI.GetRecipeDisplayRecipe", i, true, true)
+			if not okD or not recipeID then break end
+			local row = recipeFromCTSUInfo(recipeID)
+			if row then out[#out + 1] = row end
+		end
+		if #out > 0 then return out end
+	end
+	num = Compat.firstNumber("C_TradeSkillUI.GetNumTradeSkills")
+	if num ~= nil then
+		for i = 1, num do
+			local okD, recipeID = Compat.raw("C_TradeSkillUI.GetTradeSkillInfo", i)
+			if not okD or not recipeID then break end
+			local row = recipeFromCTSUInfo(recipeID)
+			if row then out[#out + 1] = row end
+		end
+		if #out > 0 then return out end
+	end
+	return nil
 end
 
 local function scanClassic()
@@ -371,6 +424,7 @@ end
 function Compat.tsScanAvailable()
 	if Compat.driver then return true end
 	return Compat.exists("C_TradeSkillUI.GetRecipeNumDisplayRecipes")
+		or Compat.exists("C_TradeSkillUI.GetNumTradeSkills")
 		or Compat.exists("GetNumTradeSkills")
 		or Compat.exists("C_Professions.GetNumRecipeListEntries")
 end
@@ -654,17 +708,20 @@ local function ctrainerScan()
 	return out
 end
 
+-- Docs-first order: Forever is mainline-family, C_Trainer is the documented
+-- trainer surface. The classic GetTrainerService* globals were removed with
+-- FrameXML and are kept as a gated fallback candidate only.
 function Compat.trainerScan()
-	local out = classicTrainerScan()
-	if out then
-		Compat.trainerStyle = "Classic.Trainer"
-		Compat.set("TRAINER_STYLE", "Classic.Trainer")
-		return out
-	end
-	out = ctrainerScan()
+	local out = ctrainerScan()
 	if out then
 		Compat.trainerStyle = "C_Trainer"
 		Compat.set("TRAINER_STYLE", "C_Trainer")
+		return out
+	end
+	out = classicTrainerScan()
+	if out then
+		Compat.trainerStyle = "Classic.Trainer"
+		Compat.set("TRAINER_STYLE", "Classic.Trainer")
 		return out
 	end
 	return nil
@@ -818,6 +875,21 @@ function Compat.gainFromChat(text)
 	return nil
 end
 
+-- Informational ONLY -- never gate functionality on game-type detection.
+-- Documented: WOW_PROJECT_CAMELOT (18) exists since build 70170, but early beta
+-- had a bug where WOW_PROJECT_ID reported the retail value, so the interface
+-- version range (1.60.x -> 16001..) is the primary check and existence beats
+-- hard-coded numbers. (TOC metadata `## AllowLoadGameType: forever` also works;
+-- C_GameRules.IsGameRuleActive(Enum.GameRule.HardcoreRuleset...) detects RP/PvP.
+function Compat.isForeverClient()
+	local ok, _b, _v, _d, iface = Compat.raw("GetBuildInfo")
+	if ok and type(iface) == "number" and iface >= 16000 and iface < 20000 then return true end
+	local pid = rawget(_G, "WOW_PROJECT_ID")
+	local camelot = rawget(_G, "WOW_PROJECT_CAMELOT")
+	if camelot ~= nil and pid == camelot then return true end
+	return false
+end
+
 function Compat.clientInfo()
 	local ok, build, versionText, dateText, interfaceVersion = Compat.raw("GetBuildInfo")
 	return {
@@ -825,5 +897,6 @@ function Compat.clientInfo()
 		clientVersion = ok and type(versionText) == "string" and versionText or nil,
 		buildDate = ok and type(dateText) == "string" and dateText or nil,
 		interface = ok and type(interfaceVersion) == "number" and interfaceVersion or nil,
+		forever = Compat.isForeverClient(),
 	}
 end

@@ -92,6 +92,35 @@ function BP.build(solveResult)
 	return plan
 end
 
+-- Shared entry point: gather defaults (cached recipes, live skill, target,
+-- AH/vendor prices), solve and build. Used by the Plan tab and /blackie plan.
+-- Returns solveResult, plan (plan is nil unless the solve succeeded).
+function BP.runPlan(opts)
+	opts = opts or {}
+	local RC = Blackie.RecipeCache
+	local CS = Blackie.Costing
+
+	local recipes = opts.recipes or (RC and RC.all()) or {}
+	local current = opts.currentSkill
+	if current == nil then
+		current = (Blackie.Compat and Blackie.Compat.currentSkill()) or 0
+	end
+	local settings = Blackie.Profile().settings or {}
+	local target = opts.target or settings.target or 300
+
+	local result = PS.solve({
+		current = current,
+		target = target,
+		recipes = recipes,
+		allowOrange = opts.allowOrange or false,
+		priceOf = opts.priceOf or (CS and CS.priceOf),
+		priceOfName = opts.priceOfName,
+	})
+	local plan = nil
+	if result.ok then plan = BP.build(result) end
+	return result, plan
+end
+
 function BP.report(plan)
 	if not plan then return end
 	Blackie:Print(format("plan: %d craft steps, shop total %s (%d unpriced groups)",
