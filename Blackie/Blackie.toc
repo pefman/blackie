@@ -1,0 +1,35 @@
+## Name: Blackie
+## Title: Blackie — Blacksmithing Companion
+## Notes: Recipe browser, source discovery and an optimal 1-300 leveling plan for World of Warcraft: Forever.
+## Author: pefman
+## Version: 0.1.0
+## Interface: 16001
+## SavedVariables: BlackieDB
+## IconTexture: Interface\Icons\inv_misc_punchcards_blacksmith
+## X-Category: Tradeskill
+
+Blackie.lua
+Core/Util.lua
+Core/Events.lua
+Core/Compat.lua
+Core/APIProbe.lua
+Core/Commands.lua
+Core/Data/RecipeCache.lua
+Core/Data/DiscoveryLog.lua
+Core/Data/TrainerScan.lua
+Core/Data/VendorScan.lua
+Core/Costing.lua
+Core/Data/SkillupModel.lua
+Core/Solver/RankInfo.lua
+Core/Solver/PathSolver.lua
+Core/Solver/PlanBuilder.lua
+Core/Main.lua
+
+# --- not yet implemented (uncomment as each file lands) ---
+# Core/SelfTest.lua
+# UI/ScrollList.lua
+# UI/Panel.lua
+# UI/RecipesTab.lua
+# UI/PlanTab.lua
+# UI/ShoppingTab.lua
+# UI/MinimapButton.lua

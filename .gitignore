@@ -1,0 +1,10 @@
+# Build / tooling artifacts
+*.luac
+*.out
+*.log
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+*~
